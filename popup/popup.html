@@ -12,22 +12,30 @@
       <h1>UnderControl</h1>
     </header>
 
-    <!-- Login View -->
-    <div id="view-login" class="view">
+    <!-- Setup View -->
+    <div id="view-setup" class="view">
       <div class="field">
         <label for="api-url">API URL</label>
         <input type="url" id="api-url" placeholder="http://localhost:4000">
       </div>
       <div class="field">
-        <label for="username">Username</label>
-        <input type="text" id="username" placeholder="user@example.com">
+        <label for="api-key">API Key</label>
+        <input type="password" id="api-key" placeholder="ak_...">
       </div>
+      <div class="btn-row">
+        <button id="btn-test" class="btn-secondary">Test</button>
+        <button id="btn-save" class="btn-primary">Save</button>
+      </div>
+      <div id="setup-status" class="hidden"></div>
+    </div>
+
+    <!-- Ready View (main view when configured) -->
+    <div id="view-ready" class="view hidden">
       <div class="field">
-        <label for="password">Password</label>
-        <input type="password" id="password">
+        <label for="task-title">Title</label>
+        <input type="text" id="task-title" placeholder="Page title">
       </div>
-      <button id="btn-login" class="btn-primary">Login</button>
-      <div id="login-error" class="error hidden"></div>
+      <button id="btn-capture" class="btn-primary">Save Page</button>
     </div>
 
     <!-- Saving View -->
@@ -57,11 +65,11 @@
       <button id="btn-retry" class="btn-secondary">Retry</button>
     </div>
 
-    <!-- Footer (logged in) -->
+    <!-- Footer (configured) -->
     <div id="footer" class="footer hidden">
-      <span id="user-name" class="user-name"></span>
+      <span id="api-host" class="user-name"></span>
       <button id="btn-settings" class="btn-link">Settings</button>
-      <button id="btn-logout" class="btn-link">Logout</button>
+      <button id="btn-clear" class="btn-link">Clear</button>
     </div>
 
     <!-- Settings View -->
@@ -70,7 +78,15 @@
         <label for="settings-api-url">API URL</label>
         <input type="url" id="settings-api-url">
       </div>
-      <button id="btn-save-settings" class="btn-secondary">Save</button>
+      <div class="field">
+        <label for="settings-api-key">API Key</label>
+        <input type="password" id="settings-api-key" placeholder="ak_...">
+      </div>
+      <div class="btn-row">
+        <button id="btn-test-settings" class="btn-secondary">Test</button>
+        <button id="btn-save-settings" class="btn-secondary">Save</button>
+      </div>
+      <div id="settings-status" class="hidden"></div>
       <button id="btn-back" class="btn-link">Back</button>
     </div>
   </div>

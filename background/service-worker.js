@@ -3,62 +3,52 @@
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "capture") {
-    handleCapture(message.tabId).then(sendResponse).catch(err =>
-      sendResponse({ success: false, error: err.message })
-    );
-    return true; // keep channel open for async response
-  }
-
-  if (message.action === "login") {
-    handleLogin(message.apiUrl, message.username, message.password)
-      .then(sendResponse)
-      .catch(err => sendResponse({ success: false, error: err.message }));
-    return true;
-  }
-
-  if (message.action === "captureResult") {
-    // Content script sends captured HTML here
-    handleCaptureResult(message).then(sendResponse).catch(err =>
-      sendResponse({ success: false, error: err.message })
-    );
-    return true;
+    runCapture(message.tabId, message.customTitle);
+    sendResponse({ started: true }); // Ack immediately to close channel
   }
 });
 
+async function setStatus(status, data = {}) {
+  await chrome.storage.local.set({ capture_status: status, ...data });
+}
+
+async function runCapture(tabId, customTitle) {
+  try {
+    await setStatus("saving");
+    const result = await handleCapture(tabId, customTitle);
+    if (result.success) {
+      await setStatus("success", { capture_title: result.title });
+    } else {
+      await setStatus("error", { capture_error: result.error });
+    }
+  } catch (err) {
+    await setStatus("error", { capture_error: err.message });
+  }
+}
+
 async function getConfig() {
-  const data = await chrome.storage.local.get(["api_url", "auth_tokens"]);
+  const data = await chrome.storage.local.get(["api_url", "api_key"]);
   return {
     apiUrl: data.api_url || "http://localhost:4000",
-    tokens: data.auth_tokens || null,
+    apiKey: data.api_key || null,
   };
 }
 
 async function apiFetch(path, options = {}) {
   const config = await getConfig();
-  if (!config.tokens) throw new Error("Not logged in");
+  if (!config.apiKey) throw new Error("API key not configured");
 
   const url = `${config.apiUrl}${path}`;
   const headers = {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${config.tokens.accessToken}`,
+    Authorization: `Bearer ${config.apiKey}`,
     ...options.headers,
   };
 
   const res = await fetch(url, { ...options, headers });
 
   if (res.status === 401) {
-    // Try token refresh
-    const refreshed = await refreshToken(config);
-    if (!refreshed) throw new Error("Session expired, please login again");
-
-    const newConfig = await getConfig();
-    headers.Authorization = `Bearer ${newConfig.tokens.accessToken}`;
-    const retryRes = await fetch(url, { ...options, headers });
-    if (!retryRes.ok) {
-      const err = await retryRes.json().catch(() => ({}));
-      throw new Error(err.message || `API error: ${retryRes.status}`);
-    }
-    return retryRes;
+    throw new Error("Invalid API key. Please check your settings.");
   }
 
   if (!res.ok) {
@@ -68,52 +58,7 @@ async function apiFetch(path, options = {}) {
   return res;
 }
 
-async function refreshToken(config) {
-  try {
-    const res = await fetch(`${config.apiUrl}/auth/refresh-token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refreshToken: config.tokens.refreshToken }),
-    });
-    if (!res.ok) return false;
-
-    const data = await res.json();
-    await chrome.storage.local.set({
-      auth_tokens: { ...config.tokens, accessToken: data.accessToken },
-    });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function handleLogin(apiUrl, username, password) {
-  const res = await fetch(`${apiUrl}/auth/v2/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.message || "Login failed");
-  }
-
-  const data = await res.json();
-  await chrome.storage.local.set({
-    api_url: apiUrl,
-    auth_tokens: {
-      accessToken: data.accessToken,
-      refreshToken: data.refreshToken,
-      userId: data.userId,
-      userName: data.userName,
-    },
-  });
-
-  return { success: true, userName: data.userName };
-}
-
-async function handleCapture(tabId) {
+async function handleCapture(tabId, customTitle) {
   // Step 1: Inject SingleFile libs + capture script into the tab
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
@@ -134,15 +79,19 @@ async function handleCapture(tabId) {
     ],
   });
 
-  // Step 2: Tell the content script to start capturing
+  // Step 2: Tell the content script to start capturing and wait for result
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("Capture timed out")), 120000);
+    const timeout = setTimeout(() => {
+      chrome.runtime.onMessage.removeListener(listener);
+      reject(new Error("Capture timed out"));
+    }, 120000);
 
     const listener = (msg, sender) => {
       if (msg.action === "captureComplete" && sender.tab?.id === tabId) {
         clearTimeout(timeout);
         chrome.runtime.onMessage.removeListener(listener);
-        uploadAndCreateTask(msg.title, msg.url, msg.html, msg.filename)
+        const taskTitle = customTitle || msg.title;
+        uploadAndCreateTask(taskTitle, msg.url, msg.html, msg.filename)
           .then(result => resolve(result))
           .catch(err => resolve({ success: false, error: err.message }));
       }
@@ -154,11 +103,9 @@ async function handleCapture(tabId) {
     };
 
     chrome.runtime.onMessage.addListener(listener);
-    chrome.tabs.sendMessage(tabId, { action: "startCapture" }).catch(err => {
-      clearTimeout(timeout);
-      chrome.runtime.onMessage.removeListener(listener);
-      reject(err);
-    });
+    // Content script returns true (async) but sends results via chrome.runtime.sendMessage,
+    // so we ignore the sendMessage promise — results come through the listener above.
+    chrome.tabs.sendMessage(tabId, { action: "startCapture" }).catch(() => {});
   });
 }
 
@@ -172,6 +119,7 @@ async function uploadAndCreateTask(title, pageUrl, htmlContent, filename) {
       originalName: filename,
       mimeType: "text/html",
       fileSize: blob.size,
+      resourceType: "document",
       uploadMethod: "chrome-extension",
       path: "/",
     }),

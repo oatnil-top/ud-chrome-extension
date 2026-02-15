@@ -4,7 +4,8 @@
 const $ = (id) => document.getElementById(id);
 
 const views = {
-  login: $("view-login"),
+  setup: $("view-setup"),
+  ready: $("view-ready"),
   saving: $("view-saving"),
   success: $("view-success"),
   error: $("view-error"),
@@ -16,75 +17,149 @@ function showView(name) {
   views[name].classList.remove("hidden");
 
   const footer = $("footer");
-  if (name === "login" || name === "settings") {
+  if (name === "setup" || name === "settings") {
     footer.classList.add("hidden");
   }
 }
 
-// Init: check auth state
+// Test connection helper
+async function testConnection(apiUrl, apiKey, statusEl) {
+  statusEl.textContent = "Testing...";
+  statusEl.className = "status-msg testing";
+  statusEl.classList.remove("hidden");
+
+  try {
+    const res = await fetch(`${apiUrl}/auth/profile`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (res.status === 401) {
+      statusEl.textContent = "Invalid API key";
+      statusEl.className = "status-msg fail";
+      return false;
+    }
+
+    if (!res.ok) {
+      statusEl.textContent = `Server error: ${res.status}`;
+      statusEl.className = "status-msg fail";
+      return false;
+    }
+
+    const data = await res.json();
+    statusEl.textContent = `Connected as ${data.username || data.sub || "user"}`;
+    statusEl.className = "status-msg ok";
+    return true;
+  } catch (err) {
+    statusEl.textContent = err.message?.includes("fetch")
+      ? "Cannot reach server"
+      : err.message || "Connection failed";
+    statusEl.className = "status-msg fail";
+    return false;
+  }
+}
+
+// Listen for status changes from service worker
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.capture_status) {
+    const status = changes.capture_status.newValue;
+    if (status === "saving") {
+      showView("saving");
+      $("footer").classList.remove("hidden");
+    } else if (status === "success") {
+      const title = changes.capture_title?.newValue || "";
+      $("saved-title").textContent = title;
+      showView("success");
+      $("footer").classList.remove("hidden");
+      setTimeout(() => window.close(), 2000);
+    } else if (status === "error") {
+      const error = changes.capture_error?.newValue || "Save failed";
+      $("error-message").textContent = error;
+      showView("error");
+      $("footer").classList.remove("hidden");
+    }
+  }
+});
+
+// Init: check if configured, prefill page title
 async function init() {
-  const data = await chrome.storage.local.get(["api_url", "auth_tokens"]);
+  const data = await chrome.storage.local.get(["api_url", "api_key", "capture_status"]);
   const apiUrl = data.api_url || "http://localhost:4000";
 
   $("api-url").value = apiUrl;
   $("settings-api-url").value = apiUrl;
 
-  if (data.auth_tokens?.accessToken) {
-    // Logged in - start capture immediately
-    $("user-name").textContent = data.auth_tokens.userName || "User";
+  if (data.api_key) {
+    try {
+      const host = new URL(apiUrl).host;
+      $("api-host").textContent = host;
+    } catch {
+      $("api-host").textContent = apiUrl;
+    }
     $("footer").classList.remove("hidden");
-    startCapture();
+
+    if (data.capture_status === "saving") {
+      showView("saving");
+    } else {
+      // Prefill title from active tab
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        $("task-title").value = tab?.title || "";
+      } catch {}
+      showView("ready");
+    }
   } else {
-    showView("login");
+    showView("setup");
   }
 }
 
-// Login
-$("btn-login").addEventListener("click", async () => {
+// Setup: Test button
+$("btn-test").addEventListener("click", async () => {
   const apiUrl = $("api-url").value.replace(/\/+$/, "");
-  const username = $("username").value.trim();
-  const password = $("password").value;
+  const apiKey = $("api-key").value.trim();
+  if (!apiUrl || !apiKey) {
+    const el = $("setup-status");
+    el.textContent = "Both fields are required";
+    el.className = "status-msg fail";
+    el.classList.remove("hidden");
+    return;
+  }
+  await testConnection(apiUrl, apiKey, $("setup-status"));
+});
 
-  if (!apiUrl || !username || !password) {
-    $("login-error").textContent = "All fields are required";
-    $("login-error").classList.remove("hidden");
+// Setup: Save button
+$("btn-save").addEventListener("click", async () => {
+  const apiUrl = $("api-url").value.replace(/\/+$/, "");
+  const apiKey = $("api-key").value.trim();
+
+  if (!apiUrl || !apiKey) {
+    const el = $("setup-status");
+    el.textContent = "Both fields are required";
+    el.className = "status-msg fail";
+    el.classList.remove("hidden");
     return;
   }
 
-  $("btn-login").disabled = true;
-  $("login-error").classList.add("hidden");
-
-  try {
-    const res = await chrome.runtime.sendMessage({
-      action: "login",
-      apiUrl,
-      username,
-      password,
-    });
-
-    if (res.success) {
-      $("user-name").textContent = res.userName || "User";
-      $("footer").classList.remove("hidden");
-      startCapture();
-    } else {
-      $("login-error").textContent = res.error || "Login failed";
-      $("login-error").classList.remove("hidden");
-    }
-  } catch (err) {
-    $("login-error").textContent = err.message || "Login failed";
-    $("login-error").classList.remove("hidden");
-  } finally {
-    $("btn-login").disabled = false;
+  if (!apiKey.startsWith("ak_")) {
+    const el = $("setup-status");
+    el.textContent = "API key must start with ak_";
+    el.className = "status-msg fail";
+    el.classList.remove("hidden");
+    return;
   }
+
+  await chrome.storage.local.set({ api_url: apiUrl, api_key: apiKey });
+  init();
 });
 
-// Enter key on password field triggers login
-$("password").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") $("btn-login").click();
+$("api-key").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("btn-save").click();
 });
 
-// Start capture
+// Capture: Save Page button
+$("btn-capture").addEventListener("click", () => startCapture());
+
 async function startCapture() {
+  const customTitle = $("task-title").value.trim();
   showView("saving");
   $("footer").classList.remove("hidden");
 
@@ -92,66 +167,63 @@ async function startCapture() {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) throw new Error("No active tab");
 
-    // Check if it's a capturable page
     if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) {
       throw new Error("Cannot capture browser internal pages");
     }
 
-    const res = await chrome.runtime.sendMessage({
+    await chrome.storage.local.remove(["capture_status", "capture_title", "capture_error"]);
+    await chrome.runtime.sendMessage({
       action: "capture",
       tabId: tab.id,
-    });
-
-    if (res.success) {
-      $("saved-title").textContent = res.title;
-      showView("success");
-      // Auto-close after 2 seconds
-      setTimeout(() => window.close(), 2000);
-    } else {
-      $("error-message").textContent = res.error || "Save failed";
-      showView("error");
-    }
+      customTitle: customTitle || undefined,
+    }).catch(() => {});
   } catch (err) {
     $("error-message").textContent = err.message || "Save failed";
     showView("error");
   }
 }
 
-// Retry
-$("btn-retry").addEventListener("click", startCapture);
+// Retry goes back to ready view
+$("btn-retry").addEventListener("click", () => init());
 
 // Settings
 $("btn-settings").addEventListener("click", async () => {
-  const data = await chrome.storage.local.get(["api_url"]);
+  const data = await chrome.storage.local.get(["api_url", "api_key"]);
   $("settings-api-url").value = data.api_url || "http://localhost:4000";
+  $("settings-api-key").value = data.api_key || "";
+  $("settings-status").classList.add("hidden");
   showView("settings");
+});
+
+$("btn-test-settings").addEventListener("click", async () => {
+  const apiUrl = $("settings-api-url").value.replace(/\/+$/, "");
+  const apiKey = $("settings-api-key").value.trim();
+  if (!apiUrl || !apiKey) {
+    const el = $("settings-status");
+    el.textContent = "Both fields are required";
+    el.className = "status-msg fail";
+    el.classList.remove("hidden");
+    return;
+  }
+  await testConnection(apiUrl, apiKey, $("settings-status"));
 });
 
 $("btn-save-settings").addEventListener("click", async () => {
   const apiUrl = $("settings-api-url").value.replace(/\/+$/, "");
-  if (!apiUrl) return;
-  await chrome.storage.local.set({ api_url: apiUrl });
-  // Go back to saving state or show success
-  const data = await chrome.storage.local.get(["auth_tokens"]);
-  if (data.auth_tokens?.accessToken) {
-    startCapture();
-  } else {
-    showView("login");
-    $("api-url").value = apiUrl;
-  }
-});
+  const apiKey = $("settings-api-key").value.trim();
+  if (!apiUrl || !apiKey) return;
 
-$("btn-back").addEventListener("click", () => {
-  // Just re-init to get back to appropriate view
+  await chrome.storage.local.set({ api_url: apiUrl, api_key: apiKey });
   init();
 });
 
-// Logout
-$("btn-logout").addEventListener("click", async () => {
-  await chrome.storage.local.remove(["auth_tokens"]);
+$("btn-back").addEventListener("click", () => init());
+
+$("btn-clear").addEventListener("click", async () => {
+  await chrome.storage.local.remove(["api_key", "capture_status", "capture_title", "capture_error"]);
   $("footer").classList.add("hidden");
-  showView("login");
+  $("api-key").value = "";
+  showView("setup");
 });
 
-// Run init
 init();

@@ -168,3 +168,35 @@ input:focus {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.btn-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.btn-row .btn-primary {
+  flex: 1;
+  margin-top: 0;
+}
+
+.btn-row .btn-secondary {
+  flex-shrink: 0;
+}
+
+.status-msg {
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.status-msg.ok {
+  color: #16a34a;
+}
+
+.status-msg.fail {
+  color: #dc2626;
+}
+
+.status-msg.testing {
+  color: #666;
+}
