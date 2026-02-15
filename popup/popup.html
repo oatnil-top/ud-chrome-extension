@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=280">
+  <title>UnderControl Web Clipper</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>UnderControl</h1>
+    </header>
+
+    <!-- Login View -->
+    <div id="view-login" class="view">
+      <div class="field">
+        <label for="api-url">API URL</label>
+        <input type="url" id="api-url" placeholder="http://localhost:4000">
+      </div>
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" placeholder="user@example.com">
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password">
+      </div>
+      <button id="btn-login" class="btn-primary">Login</button>
+      <div id="login-error" class="error hidden"></div>
+    </div>
+
+    <!-- Saving View -->
+    <div id="view-saving" class="view hidden">
+      <div class="status">
+        <div class="spinner"></div>
+        <span>Saving page...</span>
+      </div>
+    </div>
+
+    <!-- Success View -->
+    <div id="view-success" class="view hidden">
+      <div class="status success">
+        <span class="check">&#10003;</span>
+        <span>Saved!</span>
+      </div>
+      <p id="saved-title" class="saved-title"></p>
+    </div>
+
+    <!-- Error View -->
+    <div id="view-error" class="view hidden">
+      <div class="status error-status">
+        <span class="x-mark">&#10007;</span>
+        <span>Failed</span>
+      </div>
+      <p id="error-message" class="error"></p>
+      <button id="btn-retry" class="btn-secondary">Retry</button>
+    </div>
+
+    <!-- Footer (logged in) -->
+    <div id="footer" class="footer hidden">
+      <span id="user-name" class="user-name"></span>
+      <button id="btn-settings" class="btn-link">Settings</button>
+      <button id="btn-logout" class="btn-link">Logout</button>
+    </div>
+
+    <!-- Settings View -->
+    <div id="view-settings" class="view hidden">
+      <div class="field">
+        <label for="settings-api-url">API URL</label>
+        <input type="url" id="settings-api-url">
+      </div>
+      <button id="btn-save-settings" class="btn-secondary">Save</button>
+      <button id="btn-back" class="btn-link">Back</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
