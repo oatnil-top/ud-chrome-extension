@@ -4,7 +4,7 @@
 const $ = (id) => document.getElementById(id);
 
 const views = {
-  login: $("view-login"),
+  setup: $("view-setup"),
   ready: $("view-ready"),
   saving: $("view-saving"),
   success: $("view-success"),
@@ -17,8 +17,56 @@ function showView(name) {
   views[name].classList.remove("hidden");
 
   const footer = $("footer");
-  if (name === "login" || name === "settings") {
+  if (name === "setup" || name === "settings") {
     footer.classList.add("hidden");
+  }
+}
+
+// Auth method tabs
+$("tab-login").addEventListener("click", () => switchAuthTab("login"));
+$("tab-apikey").addEventListener("click", () => switchAuthTab("apikey"));
+
+function switchAuthTab(tab) {
+  $("tab-login").classList.toggle("active", tab === "login");
+  $("tab-apikey").classList.toggle("active", tab === "apikey");
+  $("auth-login").classList.toggle("hidden", tab !== "login");
+  $("auth-apikey").classList.toggle("hidden", tab !== "apikey");
+  $("setup-status").classList.add("hidden");
+}
+
+// Test connection helper (for API key)
+async function testConnection(apiUrl, apiKey, statusEl) {
+  statusEl.textContent = "Testing...";
+  statusEl.className = "status-msg testing";
+  statusEl.classList.remove("hidden");
+
+  try {
+    const res = await fetch(`${apiUrl}/auth/profile`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+    });
+
+    if (res.status === 401) {
+      statusEl.textContent = "Invalid API key";
+      statusEl.className = "status-msg fail";
+      return false;
+    }
+
+    if (!res.ok) {
+      statusEl.textContent = `Server error: ${res.status}`;
+      statusEl.className = "status-msg fail";
+      return false;
+    }
+
+    const data = await res.json();
+    statusEl.textContent = `Connected as ${data.username || data.sub || "user"}`;
+    statusEl.className = "status-msg ok";
+    return true;
+  } catch (err) {
+    statusEl.textContent = err.message?.includes("fetch")
+      ? "Cannot reach server"
+      : err.message || "Connection failed";
+    statusEl.className = "status-msg fail";
+    return false;
   }
 }
 
@@ -44,24 +92,28 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// Init: check if logged in, prefill page title
+// Init: check if authenticated, prefill page title
 async function init() {
   const data = await chrome.storage.local.get([
-    "api_url", "access_token", "refresh_token", "user_name", "capture_status",
+    "api_url", "auth_method", "api_key", "access_token", "refresh_token",
+    "user_name", "capture_status",
   ]);
   const apiUrl = data.api_url || "http://localhost:4000";
 
   $("api-url").value = apiUrl;
   $("settings-api-url").value = apiUrl;
 
-  if (data.access_token) {
+  const isAuthenticated =
+    (data.auth_method === "apikey" && data.api_key) ||
+    (data.auth_method === "login" && data.access_token);
+
+  if (isAuthenticated) {
     $("display-name").textContent = data.user_name || "Connected";
     $("footer").classList.remove("hidden");
 
     if (data.capture_status === "saving") {
       showView("saving");
     } else {
-      // Prefill title from active tab
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         $("task-title").value = tab?.title || "";
@@ -69,11 +121,18 @@ async function init() {
       showView("ready");
     }
   } else {
-    showView("login");
+    showView("setup");
   }
 }
 
-// Login
+function showStatus(elementId, text, className) {
+  const el = $(elementId);
+  el.textContent = text;
+  el.className = `status-msg ${className}`;
+  el.classList.remove("hidden");
+}
+
+// --- Login auth ---
 $("btn-login").addEventListener("click", () => doLogin());
 $("password").addEventListener("keydown", (e) => {
   if (e.key === "Enter") doLogin();
@@ -85,11 +144,11 @@ async function doLogin() {
   const password = $("password").value;
 
   if (!apiUrl || !username || !password) {
-    showStatus("login-status", "All fields are required", "fail");
+    showStatus("setup-status", "All fields are required", "fail");
     return;
   }
 
-  showStatus("login-status", "Logging in...", "testing");
+  showStatus("setup-status", "Logging in...", "testing");
 
   try {
     const res = await fetch(`${apiUrl}/auth/v2/login`, {
@@ -99,40 +158,81 @@ async function doLogin() {
     });
 
     if (res.status === 401) {
-      showStatus("login-status", "Invalid username or password", "fail");
+      showStatus("setup-status", "Invalid username or password", "fail");
       return;
     }
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      showStatus("login-status", err.message || `Error: ${res.status}`, "fail");
+      showStatus("setup-status", err.message || `Error: ${res.status}`, "fail");
       return;
     }
 
     const data = await res.json();
     await chrome.storage.local.set({
       api_url: apiUrl,
+      auth_method: "login",
       access_token: data.accessToken,
       refresh_token: data.refreshToken,
       user_name: data.userName || username,
     });
+    // Clear any leftover API key
+    await chrome.storage.local.remove(["api_key"]);
 
     init();
   } catch (err) {
     showStatus(
-      "login-status",
+      "setup-status",
       err.message?.includes("fetch") ? "Cannot reach server" : err.message || "Login failed",
       "fail"
     );
   }
 }
 
-function showStatus(elementId, text, className) {
-  const el = $(elementId);
-  el.textContent = text;
-  el.className = `status-msg ${className}`;
-  el.classList.remove("hidden");
-}
+// --- API Key auth ---
+$("btn-test").addEventListener("click", async () => {
+  const apiUrl = $("api-url").value.replace(/\/+$/, "");
+  const apiKey = $("api-key").value.trim();
+  if (!apiUrl || !apiKey) {
+    showStatus("setup-status", "Both fields are required", "fail");
+    return;
+  }
+  await testConnection(apiUrl, apiKey, $("setup-status"));
+});
+
+$("btn-save-key").addEventListener("click", async () => {
+  const apiUrl = $("api-url").value.replace(/\/+$/, "");
+  const apiKey = $("api-key").value.trim();
+
+  if (!apiUrl || !apiKey) {
+    showStatus("setup-status", "Both fields are required", "fail");
+    return;
+  }
+
+  if (!apiKey.startsWith("ak_")) {
+    showStatus("setup-status", "API key must start with ak_", "fail");
+    return;
+  }
+
+  // Test connection before saving
+  const ok = await testConnection(apiUrl, apiKey, $("setup-status"));
+  if (!ok) return;
+
+  await chrome.storage.local.set({
+    api_url: apiUrl,
+    auth_method: "apikey",
+    api_key: apiKey,
+    user_name: $("setup-status").textContent.replace("Connected as ", ""),
+  });
+  // Clear any leftover JWT tokens
+  await chrome.storage.local.remove(["access_token", "refresh_token"]);
+
+  init();
+});
+
+$("api-key").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("btn-save-key").click();
+});
 
 // Capture: Save Page button
 $("btn-capture").addEventListener("click", () => startCapture());
@@ -184,15 +284,16 @@ $("btn-save-settings").addEventListener("click", async () => {
 
 $("btn-back").addEventListener("click", () => init());
 
-// Logout
+// Logout — clears all auth data regardless of method
 $("btn-logout").addEventListener("click", async () => {
   await chrome.storage.local.remove([
-    "access_token", "refresh_token", "user_name",
+    "auth_method", "api_key", "access_token", "refresh_token", "user_name",
     "capture_status", "capture_title", "capture_error",
   ]);
   $("password").value = "";
-  $("login-status").classList.add("hidden");
-  showView("login");
+  $("api-key").value = "";
+  $("setup-status").classList.add("hidden");
+  showView("setup");
 });
 
 init();

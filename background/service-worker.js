@@ -27,17 +27,27 @@ async function runCapture(tabId, customTitle) {
 }
 
 async function getConfig() {
-  const data = await chrome.storage.local.get(["api_url", "access_token", "refresh_token"]);
+  const data = await chrome.storage.local.get([
+    "api_url", "auth_method", "api_key", "access_token", "refresh_token",
+  ]);
   return {
     apiUrl: data.api_url || "http://localhost:4000",
+    authMethod: data.auth_method || null, // "apikey" or "login"
+    apiKey: data.api_key || null,
     accessToken: data.access_token || null,
     refreshToken: data.refresh_token || null,
   };
 }
 
+function getBearerToken(config) {
+  if (config.authMethod === "apikey" && config.apiKey) return config.apiKey;
+  if (config.authMethod === "login" && config.accessToken) return config.accessToken;
+  return null;
+}
+
 async function refreshAccessToken() {
   const config = await getConfig();
-  if (!config.refreshToken) throw new Error("Not logged in. Please log in again.");
+  if (!config.refreshToken) throw new Error("Session expired. Please log in again.");
 
   const res = await fetch(`${config.apiUrl}/auth/refresh-token`, {
     method: "POST",
@@ -46,8 +56,7 @@ async function refreshAccessToken() {
   });
 
   if (!res.ok) {
-    // Refresh token expired — clear auth and require re-login
-    await chrome.storage.local.remove(["access_token", "refresh_token", "user_name"]);
+    await chrome.storage.local.remove(["access_token", "refresh_token", "user_name", "auth_method"]);
     throw new Error("Session expired. Please log in again.");
   }
 
@@ -61,25 +70,29 @@ async function refreshAccessToken() {
 
 async function apiFetch(path, options = {}, _retried = false) {
   const config = await getConfig();
-  if (!config.accessToken) throw new Error("Not logged in. Please log in again.");
+  const token = getBearerToken(config);
+  if (!token) throw new Error("Not authenticated. Please log in or set an API key.");
 
   const url = `${config.apiUrl}${path}`;
   const headers = {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${config.accessToken}`,
+    Authorization: `Bearer ${token}`,
     ...options.headers,
   };
 
   const res = await fetch(url, { ...options, headers });
 
-  // On 401, try refreshing the token once
-  if (res.status === 401 && !_retried) {
-    const newToken = await refreshAccessToken();
+  // On 401 with login auth, try refreshing the token once
+  if (res.status === 401 && config.authMethod === "login" && !_retried) {
+    await refreshAccessToken();
     return apiFetch(path, options, true);
   }
 
   if (res.status === 401) {
-    throw new Error("Session expired. Please log in again.");
+    const msg = config.authMethod === "apikey"
+      ? "Invalid API key. Please check your settings."
+      : "Session expired. Please log in again.";
+    throw new Error(msg);
   }
 
   if (!res.ok) {

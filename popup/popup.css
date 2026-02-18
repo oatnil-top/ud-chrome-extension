@@ -184,6 +184,42 @@ input:focus {
   flex-shrink: 0;
 }
 
+.auth-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #e5e5e5;
+  margin-bottom: 4px;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 5px 0;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  font-size: 12px;
+  color: #999;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.auth-tab:hover {
+  color: #666;
+}
+
+.auth-tab.active {
+  color: #111;
+  border-bottom-color: #111;
+  font-weight: 500;
+}
+
+#auth-login,
+#auth-apikey {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .status-msg {
   font-size: 12px;
   padding: 4px 0;

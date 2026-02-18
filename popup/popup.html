@@ -12,25 +12,48 @@
       <h1>UnderControl</h1>
     </header>
 
-    <!-- Login View -->
-    <div id="view-login" class="view">
+    <!-- Setup View -->
+    <div id="view-setup" class="view">
       <div class="field">
         <label for="api-url">API URL</label>
         <input type="url" id="api-url" placeholder="http://localhost:4000">
       </div>
-      <div class="field">
-        <label for="username">Username</label>
-        <input type="text" id="username" placeholder="username">
+
+      <!-- Auth method tabs -->
+      <div class="auth-tabs">
+        <button id="tab-login" class="auth-tab active">Login</button>
+        <button id="tab-apikey" class="auth-tab">API Key</button>
       </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input type="password" id="password" placeholder="password">
+
+      <!-- Login fields -->
+      <div id="auth-login">
+        <div class="field">
+          <label for="username">Username</label>
+          <input type="text" id="username" placeholder="username">
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input type="password" id="password" placeholder="password">
+        </div>
+        <button id="btn-login" class="btn-primary">Login</button>
       </div>
-      <button id="btn-login" class="btn-primary">Login</button>
-      <div id="login-status" class="hidden"></div>
+
+      <!-- API Key fields -->
+      <div id="auth-apikey" class="hidden">
+        <div class="field">
+          <label for="api-key">API Key</label>
+          <input type="password" id="api-key" placeholder="ak_...">
+        </div>
+        <div class="btn-row">
+          <button id="btn-test" class="btn-secondary">Test</button>
+          <button id="btn-save-key" class="btn-primary">Save</button>
+        </div>
+      </div>
+
+      <div id="setup-status" class="hidden"></div>
     </div>
 
-    <!-- Ready View (main view when logged in) -->
+    <!-- Ready View (main view when authenticated) -->
     <div id="view-ready" class="view hidden">
       <div class="field">
         <label for="task-title">Title</label>
@@ -66,7 +89,7 @@
       <button id="btn-retry" class="btn-secondary">Retry</button>
     </div>
 
-    <!-- Footer (logged in) -->
+    <!-- Footer (authenticated) -->
     <div id="footer" class="footer hidden">
       <span id="display-name" class="user-name"></span>
       <button id="btn-settings" class="btn-link">Settings</button>
