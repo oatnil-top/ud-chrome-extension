@@ -27,28 +27,59 @@ async function runCapture(tabId, customTitle) {
 }
 
 async function getConfig() {
-  const data = await chrome.storage.local.get(["api_url", "api_key"]);
+  const data = await chrome.storage.local.get(["api_url", "access_token", "refresh_token"]);
   return {
     apiUrl: data.api_url || "http://localhost:4000",
-    apiKey: data.api_key || null,
+    accessToken: data.access_token || null,
+    refreshToken: data.refresh_token || null,
   };
 }
 
-async function apiFetch(path, options = {}) {
+async function refreshAccessToken() {
   const config = await getConfig();
-  if (!config.apiKey) throw new Error("API key not configured");
+  if (!config.refreshToken) throw new Error("Not logged in. Please log in again.");
+
+  const res = await fetch(`${config.apiUrl}/auth/refresh-token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken: config.refreshToken }),
+  });
+
+  if (!res.ok) {
+    // Refresh token expired — clear auth and require re-login
+    await chrome.storage.local.remove(["access_token", "refresh_token", "user_name"]);
+    throw new Error("Session expired. Please log in again.");
+  }
+
+  const data = await res.json();
+  await chrome.storage.local.set({
+    access_token: data.accessToken,
+    refresh_token: data.refreshToken,
+  });
+  return data.accessToken;
+}
+
+async function apiFetch(path, options = {}, _retried = false) {
+  const config = await getConfig();
+  if (!config.accessToken) throw new Error("Not logged in. Please log in again.");
 
   const url = `${config.apiUrl}${path}`;
   const headers = {
     "Content-Type": "application/json",
-    Authorization: `Bearer ${config.apiKey}`,
+    Authorization: `Bearer ${config.accessToken}`,
     ...options.headers,
   };
 
   const res = await fetch(url, { ...options, headers });
 
+  // On 401, try refreshing the token once
+  if (res.status === 401 && !_retried) {
+    const newToken = await refreshAccessToken();
+    return apiFetch(path, options, true);
+  }
+
   if (res.status === 401) {
-    throw new Error("Invalid API key. Please check your settings.");
+    throw new Error("Session expired. Please log in again.");
   }
 
   if (!res.ok) {
