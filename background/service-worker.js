@@ -58,8 +58,37 @@ async function apiFetch(path, options = {}) {
   return res;
 }
 
+async function extractMarkdown(tabId) {
+  // Inject Readability + Turndown + markdown extraction script
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: [
+      "lib/Readability.js",
+      "lib/turndown.js",
+      "lib/turndown-plugin-gfm.js",
+      "content/markdown.js",
+    ],
+  });
+
+  // Request markdown extraction (synchronous response from content script)
+  const [response] = await chrome.tabs.sendMessage(tabId, { action: "extractMarkdown" })
+    .then(r => [r])
+    .catch(() => [null]);
+
+  if (response?.success) {
+    return response.markdown;
+  }
+  // Non-fatal: if markdown extraction fails, we still save the HTML snapshot
+  console.warn("Markdown extraction failed:", response?.error || "No response");
+  return null;
+}
+
 async function handleCapture(tabId, customTitle) {
-  // Step 1: Inject SingleFile libs + capture script into the tab
+  // Step 1: Inject Readability + Turndown and extract markdown first
+  // (before SingleFile modifies the DOM)
+  const markdown = await extractMarkdown(tabId);
+
+  // Step 2: Inject SingleFile libs + capture script into the tab
   await chrome.scripting.executeScript({
     target: { tabId, allFrames: true },
     files: [
@@ -79,7 +108,7 @@ async function handleCapture(tabId, customTitle) {
     ],
   });
 
-  // Step 2: Tell the content script to start capturing and wait for result
+  // Step 3: Tell the content script to start capturing and wait for result
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(() => {
       chrome.runtime.onMessage.removeListener(listener);
@@ -91,7 +120,7 @@ async function handleCapture(tabId, customTitle) {
         clearTimeout(timeout);
         chrome.runtime.onMessage.removeListener(listener);
         const taskTitle = customTitle || msg.title;
-        uploadAndCreateTask(taskTitle, msg.url, msg.html, msg.filename)
+        uploadAndCreateTask(taskTitle, msg.url, msg.html, msg.filename, markdown)
           .then(result => resolve(result))
           .catch(err => resolve({ success: false, error: err.message }));
       }
@@ -103,13 +132,11 @@ async function handleCapture(tabId, customTitle) {
     };
 
     chrome.runtime.onMessage.addListener(listener);
-    // Content script returns true (async) but sends results via chrome.runtime.sendMessage,
-    // so we ignore the sendMessage promise — results come through the listener above.
     chrome.tabs.sendMessage(tabId, { action: "startCapture" }).catch(() => {});
   });
 }
 
-async function uploadAndCreateTask(title, pageUrl, htmlContent, filename) {
+async function uploadAndCreateTask(title, pageUrl, htmlContent, filename, markdown) {
   const blob = new Blob([htmlContent], { type: "text/html" });
 
   // Step 1: Prepare resource upload
@@ -139,12 +166,20 @@ async function uploadAndCreateTask(title, pageUrl, htmlContent, filename) {
   // Step 3: Confirm upload
   await apiFetch(`/resources/${resourceId}/confirm`, { method: "POST" });
 
-  // Step 4: Create task with resource attached
+  // Step 4: Build description with source URL and markdown content
+  let description = "";
+  if (pageUrl) description += `Source: ${pageUrl}`;
+  if (markdown) {
+    if (description) description += "\n\n---\n\n";
+    description += markdown;
+  }
+
+  // Step 5: Create task with resource attached and markdown in description
   const taskRes = await apiFetch("/todolist", {
     method: "POST",
     body: JSON.stringify({
       title: title || "Untitled Page",
-      description: pageUrl ? `Source: ${pageUrl}` : "",
+      description,
       status: "todo",
       resourceIds: [resourceId],
     }),
