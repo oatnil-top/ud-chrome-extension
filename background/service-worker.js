@@ -3,7 +3,7 @@
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "capture") {
-    runCapture(message.tabId, message.customTitle);
+    runCapture(message.tabId, message.customTitle, message.tags);
     sendResponse({ started: true });
   }
   if (message.action === "localCapture") {
@@ -25,10 +25,10 @@ async function setStatus(status, data = {}) {
   await chrome.storage.local.set({ capture_status: status, ...data });
 }
 
-async function runCapture(tabId, customTitle) {
+async function runCapture(tabId, customTitle, tags) {
   try {
     await setStatus("saving");
-    const result = await handleCapture(tabId, customTitle);
+    const result = await handleCapture(tabId, customTitle, tags);
     if (result.success) {
       await setStatus("success", { capture_title: result.title });
     } else {
@@ -140,7 +140,7 @@ async function extractMarkdown(tabId) {
   return null;
 }
 
-async function handleCapture(tabId, customTitle) {
+async function handleCapture(tabId, customTitle, tags) {
   // Step 1: Inject Readability + Turndown and extract markdown first
   // (before SingleFile modifies the DOM)
   const markdown = await extractMarkdown(tabId);
@@ -177,7 +177,7 @@ async function handleCapture(tabId, customTitle) {
         clearTimeout(timeout);
         chrome.runtime.onMessage.removeListener(listener);
         const taskTitle = customTitle || msg.title;
-        uploadAndCreateTask(taskTitle, msg.url, msg.html, msg.filename, markdown)
+        uploadAndCreateTask(taskTitle, msg.url, msg.html, msg.filename, markdown, tags)
           .then(result => resolve(result))
           .catch(err => resolve({ success: false, error: err.message }));
       }
@@ -281,7 +281,7 @@ async function handleLocalCapture(tabId) {
 
 // --- Server upload (requires login) ---
 
-async function uploadAndCreateTask(title, pageUrl, htmlContent, filename, markdown) {
+async function uploadAndCreateTask(title, pageUrl, htmlContent, filename, markdown, tags) {
   const blob = new Blob([htmlContent], { type: "text/html" });
 
   // Step 1: Prepare resource upload
@@ -326,6 +326,7 @@ async function uploadAndCreateTask(title, pageUrl, htmlContent, filename, markdo
       title: title || "Untitled Page",
       description,
       status: "todo",
+      tags: tags && tags.length > 0 ? tags : undefined,
       resourceIds: [resourceId],
     }),
   });

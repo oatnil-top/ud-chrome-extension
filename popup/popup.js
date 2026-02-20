@@ -123,6 +123,7 @@ async function init() {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         $("task-title").value = tab?.title || "";
       } catch {}
+      renderTags();
       showView("ready");
     }
   } else {
@@ -239,14 +240,70 @@ $("api-key").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("btn-save-key").click();
 });
 
+// --- Tags input ---
+let tags = ["web-clip"];
+
+function renderTags() {
+  const container = $("tags-input");
+  container.querySelectorAll(".tag-chip").forEach((el) => el.remove());
+  const input = $("tag-text");
+  tags.forEach((tag, i) => {
+    const chip = document.createElement("span");
+    chip.className = "tag-chip";
+    chip.innerHTML = `${tag}<button data-index="${i}">&times;</button>`;
+    container.insertBefore(chip, input);
+  });
+}
+
+$("tags-input").addEventListener("click", (e) => {
+  if (e.target.tagName === "BUTTON" && e.target.dataset.index !== undefined) {
+    tags.splice(Number(e.target.dataset.index), 1);
+    renderTags();
+    return;
+  }
+  $("tag-text").focus();
+});
+
+$("tag-text").addEventListener("keydown", (e) => {
+  const input = $("tag-text");
+  const value = input.value.trim();
+  if (e.key === "Enter" || e.key === ",") {
+    e.preventDefault();
+    if (value && !tags.includes(value)) {
+      tags.push(value);
+      input.value = "";
+      renderTags();
+    }
+  }
+  if (e.key === "Backspace" && !value && tags.length > 0) {
+    tags.pop();
+    renderTags();
+  }
+});
+
+function getTags() {
+  // Flush any pending text in input
+  const input = $("tag-text");
+  const value = input.value.trim();
+  if (value && !tags.includes(value)) {
+    tags.push(value);
+    input.value = "";
+    renderTags();
+  }
+  return [...tags];
+}
+
 // Capture: Save Page button (upload to server)
 $("btn-capture").addEventListener("click", () => startCapture());
 
-// Local Save button (no login required)
+// Local Save buttons (no login required)
 $("btn-local-save").addEventListener("click", () => startLocalSave());
+$("btn-local-save-ready").addEventListener("click", () => startLocalSave());
 
 async function startCapture() {
   const customTitle = $("task-title").value.trim();
+  const captureTags = getTags();
+  $("saving-label").textContent = "Saving page...";
   showView("saving");
   $("footer").classList.remove("hidden");
 
@@ -263,6 +320,7 @@ async function startCapture() {
       action: "capture",
       tabId: tab.id,
       customTitle: customTitle || undefined,
+      tags: captureTags,
     }).catch(() => {});
   } catch (err) {
     $("error-message").textContent = err.message || "Save failed";

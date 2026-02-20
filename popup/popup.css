@@ -280,3 +280,54 @@ input:focus {
 .btn-full {
   width: 100%;
 }
+
+.tags-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  min-height: 30px;
+  align-items: center;
+  cursor: text;
+}
+
+.tags-input:focus-within {
+  border-color: #111;
+}
+
+.tags-input input {
+  border: none;
+  padding: 2px 0;
+  font-size: 12px;
+  outline: none;
+  flex: 1;
+  min-width: 60px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  background: #f0f0f0;
+  border-radius: 3px;
+  font-size: 11px;
+  color: #333;
+  white-space: nowrap;
+}
+
+.tag-chip button {
+  background: none;
+  border: none;
+  color: #999;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+
+.tag-chip button:hover {
+  color: #dc2626;
+}
