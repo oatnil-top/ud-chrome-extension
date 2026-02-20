@@ -44,7 +44,7 @@ async function getConfig() {
     "api_url", "auth_method", "api_key", "access_token", "refresh_token",
   ]);
   return {
-    apiUrl: data.api_url || "https://ud.oatnil.top",
+    apiUrl: data.api_url || "https://ud.oatnil.top/api",
     authMethod: data.auth_method || null, // "apikey" or "login"
     apiKey: data.api_key || null,
     accessToken: data.access_token || null,

@@ -103,7 +103,7 @@ async function init() {
     "api_url", "auth_method", "api_key", "access_token", "refresh_token",
     "user_name", "capture_status",
   ]);
-  const apiUrl = data.api_url || "https://ud.oatnil.top";
+  const apiUrl = data.api_url || "https://ud.oatnil.top/api";
 
   $("api-url").value = apiUrl;
   $("settings-api-url").value = apiUrl;
@@ -299,7 +299,7 @@ $("btn-retry").addEventListener("click", () => init());
 // Settings
 $("btn-settings").addEventListener("click", async () => {
   const data = await chrome.storage.local.get(["api_url"]);
-  $("settings-api-url").value = data.api_url || "https://ud.oatnil.top";
+  $("settings-api-url").value = data.api_url || "https://ud.oatnil.top/api";
   $("settings-status").classList.add("hidden");
   showView("settings");
 });
