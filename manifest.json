@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "UnderControl Web Clipper",
   "version": "0.1.0",
-  "description": "Save web pages as tasks in UnderControl with full page snapshots via SingleFile",
+  "description": "Save web pages locally or to UnderControl — full HTML snapshots and Markdown, no login required",
   "permissions": [
     "activeTab",
     "storage",
