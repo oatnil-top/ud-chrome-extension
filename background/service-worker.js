@@ -4,9 +4,22 @@
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "capture") {
     runCapture(message.tabId, message.customTitle);
-    sendResponse({ started: true }); // Ack immediately to close channel
+    sendResponse({ started: true });
+  }
+  if (message.action === "localCapture") {
+    runLocalCapture(message.tabId);
+    sendResponse({ started: true });
   }
 });
+
+function toDataUrl(content, mimeType) {
+  const bytes = new TextEncoder().encode(content);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return `data:${mimeType};base64,${btoa(binary)}`;
+}
 
 async function setStatus(status, data = {}) {
   await chrome.storage.local.set({ capture_status: status, ...data });
@@ -179,6 +192,94 @@ async function handleCapture(tabId, customTitle) {
     chrome.tabs.sendMessage(tabId, { action: "startCapture" }).catch(() => {});
   });
 }
+
+// --- Local capture (no login required) ---
+
+async function runLocalCapture(tabId) {
+  try {
+    await setStatus("saving");
+    const result = await handleLocalCapture(tabId);
+    if (result.success) {
+      await setStatus("success", { capture_title: result.title });
+    } else {
+      await setStatus("error", { capture_error: result.error });
+    }
+  } catch (err) {
+    await setStatus("error", { capture_error: err.message });
+  }
+}
+
+async function handleLocalCapture(tabId) {
+  // Step 1: Extract markdown (before SingleFile modifies the DOM)
+  const markdown = await extractMarkdown(tabId);
+
+  // Step 2: Inject SingleFile and capture HTML
+  await chrome.scripting.executeScript({
+    target: { tabId, allFrames: true },
+    files: [
+      "lib/chrome-browser-polyfill.js",
+      "lib/single-file-hooks-frames.js",
+      "lib/single-file-frames.js",
+    ],
+  });
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: [
+      "lib/chrome-browser-polyfill.js",
+      "lib/single-file-bootstrap.js",
+      "lib/single-file.js",
+      "content/capture.js",
+    ],
+  });
+
+  // Step 3: Wait for capture result
+  const captureResult = await new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      chrome.runtime.onMessage.removeListener(listener);
+      reject(new Error("Capture timed out"));
+    }, 120000);
+
+    const listener = (msg, sender) => {
+      if (msg.action === "captureComplete" && sender.tab?.id === tabId) {
+        clearTimeout(timeout);
+        chrome.runtime.onMessage.removeListener(listener);
+        resolve(msg);
+      }
+      if (msg.action === "captureError" && sender.tab?.id === tabId) {
+        clearTimeout(timeout);
+        chrome.runtime.onMessage.removeListener(listener);
+        reject(new Error(msg.error));
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(listener);
+    chrome.tabs.sendMessage(tabId, { action: "startCapture" }).catch(() => {});
+  });
+
+  // Step 4: Download HTML file (use data URL since service workers lack URL.createObjectURL)
+  const htmlDataUrl = toDataUrl(captureResult.html, "text/html");
+  await chrome.downloads.download({
+    url: htmlDataUrl,
+    filename: captureResult.filename,
+    saveAs: false,
+  });
+
+  // Step 5: Download Markdown file (if extracted)
+  if (markdown) {
+    const mdFilename = captureResult.filename.replace(/\.html$/, ".md");
+    const mdDataUrl = toDataUrl(markdown, "text/markdown");
+    await chrome.downloads.download({
+      url: mdDataUrl,
+      filename: mdFilename,
+      saveAs: false,
+    });
+  }
+
+  return { success: true, title: captureResult.title };
+}
+
+// --- Server upload (requires login) ---
 
 async function uploadAndCreateTask(title, pageUrl, htmlContent, filename, markdown) {
   const blob = new Blob([htmlContent], { type: "text/html" });

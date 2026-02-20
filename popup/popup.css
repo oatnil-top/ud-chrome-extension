@@ -236,3 +236,26 @@ input:focus {
 .status-msg.testing {
   color: #666;
 }
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0;
+}
+
+.divider::before,
+.divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid #e5e5e5;
+}
+
+.divider span {
+  font-size: 11px;
+  color: #999;
+}
+
+.btn-full {
+  width: 100%;
+}

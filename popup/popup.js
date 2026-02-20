@@ -71,23 +71,28 @@ async function testConnection(apiUrl, apiKey, statusEl) {
 }
 
 // Listen for status changes from service worker
-chrome.storage.onChanged.addListener((changes) => {
+chrome.storage.onChanged.addListener(async (changes) => {
   if (changes.capture_status) {
     const status = changes.capture_status.newValue;
+    const data = await chrome.storage.local.get(["auth_method", "api_key", "access_token"]);
+    const isAuthenticated =
+      (data.auth_method === "apikey" && data.api_key) ||
+      (data.auth_method === "login" && data.access_token);
+
     if (status === "saving") {
       showView("saving");
-      $("footer").classList.remove("hidden");
+      if (isAuthenticated) $("footer").classList.remove("hidden");
     } else if (status === "success") {
       const title = changes.capture_title?.newValue || "";
       $("saved-title").textContent = title;
       showView("success");
-      $("footer").classList.remove("hidden");
+      if (isAuthenticated) $("footer").classList.remove("hidden");
       setTimeout(() => window.close(), 2000);
     } else if (status === "error") {
       const error = changes.capture_error?.newValue || "Save failed";
       $("error-message").textContent = error;
       showView("error");
-      $("footer").classList.remove("hidden");
+      if (isAuthenticated) $("footer").classList.remove("hidden");
     }
   }
 });
@@ -234,8 +239,11 @@ $("api-key").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("btn-save-key").click();
 });
 
-// Capture: Save Page button
+// Capture: Save Page button (upload to server)
 $("btn-capture").addEventListener("click", () => startCapture());
+
+// Local Save button (no login required)
+$("btn-local-save").addEventListener("click", () => startLocalSave());
 
 async function startCapture() {
   const customTitle = $("task-title").value.trim();
@@ -255,6 +263,29 @@ async function startCapture() {
       action: "capture",
       tabId: tab.id,
       customTitle: customTitle || undefined,
+    }).catch(() => {});
+  } catch (err) {
+    $("error-message").textContent = err.message || "Save failed";
+    showView("error");
+  }
+}
+
+async function startLocalSave() {
+  $("saving-label").textContent = "Saving to local...";
+  showView("saving");
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("No active tab");
+
+    if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) {
+      throw new Error("Cannot capture browser internal pages");
+    }
+
+    await chrome.storage.local.remove(["capture_status", "capture_title", "capture_error"]);
+    await chrome.runtime.sendMessage({
+      action: "localCapture",
+      tabId: tab.id,
     }).catch(() => {});
   } catch (err) {
     $("error-message").textContent = err.message || "Save failed";
