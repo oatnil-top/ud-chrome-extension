@@ -20,6 +20,18 @@ header {
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 1px solid #e5e5e5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-icon {
+  color: #999;
+  display: flex;
+}
+
+.header-icon:hover {
+  color: #111;
 }
 
 h1 {
