@@ -351,6 +351,12 @@ async function startLocalSave() {
   }
 }
 
+// Cancel ongoing capture
+$("btn-cancel").addEventListener("click", async () => {
+  await chrome.runtime.sendMessage({ action: "cancelCapture" }).catch(() => {});
+  init();
+});
+
 // Retry goes back to ready view
 $("btn-retry").addEventListener("click", () => init());
 

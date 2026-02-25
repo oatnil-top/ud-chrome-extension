@@ -331,3 +331,19 @@ input:focus {
 .tag-chip button:hover {
   color: #dc2626;
 }
+
+.btn-cancel {
+  padding: 5px 10px;
+  background: none;
+  color: #999;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  align-self: center;
+}
+
+.btn-cancel:hover {
+  color: #dc2626;
+  border-color: #dc2626;
+}

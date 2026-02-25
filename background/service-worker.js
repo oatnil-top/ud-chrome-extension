@@ -1,6 +1,9 @@
 // UnderControl Web Clipper - Background Service Worker
 // AGPL-3.0 License
 
+// Track the current capture so it can be cancelled
+let currentCapture = null;
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "capture") {
     runCapture(message.tabId, message.customTitle, message.tags);
@@ -9,6 +12,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === "localCapture") {
     runLocalCapture(message.tabId);
     sendResponse({ started: true });
+  }
+  if (message.action === "cancelCapture") {
+    if (currentCapture) {
+      currentCapture.cancelled = true;
+      if (currentCapture.timeoutId) clearTimeout(currentCapture.timeoutId);
+      if (currentCapture.listener) chrome.runtime.onMessage.removeListener(currentCapture.listener);
+      if (currentCapture.reject) currentCapture.reject(new Error("Cancelled"));
+      currentCapture = null;
+    }
+    chrome.storage.local.remove(["capture_status", "capture_title", "capture_error"]);
+    sendResponse({ cancelled: true });
   }
 });
 
@@ -26,16 +40,21 @@ async function setStatus(status, data = {}) {
 }
 
 async function runCapture(tabId, customTitle, tags) {
+  currentCapture = { cancelled: false };
   try {
     await setStatus("saving");
     const result = await handleCapture(tabId, customTitle, tags);
+    if (currentCapture?.cancelled) return;
     if (result.success) {
       await setStatus("success", { capture_title: result.title });
     } else {
       await setStatus("error", { capture_error: result.error });
     }
   } catch (err) {
+    if (currentCapture?.cancelled) return;
     await setStatus("error", { capture_error: err.message });
+  } finally {
+    currentCapture = null;
   }
 }
 
@@ -167,14 +186,14 @@ async function handleCapture(tabId, customTitle, tags) {
 
   // Step 3: Tell the content script to start capturing and wait for result
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       chrome.runtime.onMessage.removeListener(listener);
       reject(new Error("Capture timed out"));
     }, 120000);
 
     const listener = (msg, sender) => {
       if (msg.action === "captureComplete" && sender.tab?.id === tabId) {
-        clearTimeout(timeout);
+        clearTimeout(timeoutId);
         chrome.runtime.onMessage.removeListener(listener);
         const taskTitle = customTitle || msg.title;
         uploadAndCreateTask(taskTitle, msg.url, msg.html, msg.filename, markdown, tags)
@@ -182,11 +201,18 @@ async function handleCapture(tabId, customTitle, tags) {
           .catch(err => resolve({ success: false, error: err.message }));
       }
       if (msg.action === "captureError" && sender.tab?.id === tabId) {
-        clearTimeout(timeout);
+        clearTimeout(timeoutId);
         chrome.runtime.onMessage.removeListener(listener);
         resolve({ success: false, error: msg.error });
       }
     };
+
+    // Register on currentCapture so cancel can clean up
+    if (currentCapture) {
+      currentCapture.timeoutId = timeoutId;
+      currentCapture.listener = listener;
+      currentCapture.reject = reject;
+    }
 
     chrome.runtime.onMessage.addListener(listener);
     chrome.tabs.sendMessage(tabId, { action: "startCapture" }).catch(() => {});
@@ -196,16 +222,21 @@ async function handleCapture(tabId, customTitle, tags) {
 // --- Local capture (no login required) ---
 
 async function runLocalCapture(tabId) {
+  currentCapture = { cancelled: false };
   try {
     await setStatus("saving");
     const result = await handleLocalCapture(tabId);
+    if (currentCapture?.cancelled) return;
     if (result.success) {
       await setStatus("success", { capture_title: result.title });
     } else {
       await setStatus("error", { capture_error: result.error });
     }
   } catch (err) {
+    if (currentCapture?.cancelled) return;
     await setStatus("error", { capture_error: err.message });
+  } finally {
+    currentCapture = null;
   }
 }
 
@@ -235,23 +266,30 @@ async function handleLocalCapture(tabId) {
 
   // Step 3: Wait for capture result
   const captureResult = await new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
+    const timeoutId = setTimeout(() => {
       chrome.runtime.onMessage.removeListener(listener);
       reject(new Error("Capture timed out"));
     }, 120000);
 
     const listener = (msg, sender) => {
       if (msg.action === "captureComplete" && sender.tab?.id === tabId) {
-        clearTimeout(timeout);
+        clearTimeout(timeoutId);
         chrome.runtime.onMessage.removeListener(listener);
         resolve(msg);
       }
       if (msg.action === "captureError" && sender.tab?.id === tabId) {
-        clearTimeout(timeout);
+        clearTimeout(timeoutId);
         chrome.runtime.onMessage.removeListener(listener);
         reject(new Error(msg.error));
       }
     };
+
+    // Register on currentCapture so cancel can clean up
+    if (currentCapture) {
+      currentCapture.timeoutId = timeoutId;
+      currentCapture.listener = listener;
+      currentCapture.reject = reject;
+    }
 
     chrome.runtime.onMessage.addListener(listener);
     chrome.tabs.sendMessage(tabId, { action: "startCapture" }).catch(() => {});
