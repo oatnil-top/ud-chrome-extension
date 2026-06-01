@@ -97,6 +97,19 @@ chrome.storage.onChanged.addListener(async (changes) => {
   }
 });
 
+// Bilibili detection
+function isBilibiliVideo(url) {
+  return url && /bilibili\.com\/video\/BV/i.test(url);
+}
+
+function updateBilibiliUI(url) {
+  const isBilibili = isBilibiliVideo(url);
+  $("transcript-section").classList.toggle("hidden", !isBilibili);
+  $("btn-transcript").classList.toggle("hidden", !isBilibili);
+  $("btn-local-transcript").classList.toggle("hidden", !isBilibili);
+  $("btn-local-transcript-setup").classList.toggle("hidden", !isBilibili);
+}
+
 // Init: check if authenticated, prefill page title
 async function init() {
   const data = await chrome.storage.local.get([
@@ -112,6 +125,14 @@ async function init() {
     (data.auth_method === "apikey" && data.api_key) ||
     (data.auth_method === "login" && data.access_token);
 
+  // Detect Bilibili video page
+  let currentUrl = "";
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    currentUrl = tab?.url || "";
+  } catch {}
+  updateBilibiliUI(currentUrl);
+
   if (isAuthenticated) {
     $("display-name").textContent = data.user_name || "Connected";
     $("footer").classList.remove("hidden");
@@ -121,8 +142,16 @@ async function init() {
     } else {
       try {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        $("task-title").value = tab?.title || "";
+        const title = tab?.title || "";
+        // Clean Bilibili title suffix
+        $("task-title").value = isBilibiliVideo(tab?.url)
+          ? title.replace(/_哔哩哔哩_bilibili$/, "").trim()
+          : title;
       } catch {}
+      // Default tag for Bilibili videos
+      if (isBilibiliVideo(currentUrl) && !tags.includes("bilibili-transcript")) {
+        tags = ["bilibili-transcript"];
+      }
       renderTags();
       showView("ready");
     }
@@ -296,9 +325,16 @@ function getTags() {
 // Capture: Save Page button (upload to server)
 $("btn-capture").addEventListener("click", () => startCapture());
 
+// Transcript: Save Transcript button (upload to server)
+$("btn-transcript").addEventListener("click", () => startTranscript(false));
+
 // Local Save buttons (no login required)
 $("btn-local-save").addEventListener("click", () => startLocalSave());
 $("btn-local-save-ready").addEventListener("click", () => startLocalSave());
+
+// Local Transcript buttons (no login required)
+$("btn-local-transcript").addEventListener("click", () => startTranscript(true));
+$("btn-local-transcript-setup").addEventListener("click", () => startTranscript(true));
 
 async function startCapture() {
   const customTitle = $("task-title").value.trim();
@@ -347,6 +383,35 @@ async function startLocalSave() {
     }).catch(() => {});
   } catch (err) {
     $("error-message").textContent = err.message || "Save failed";
+    showView("error");
+  }
+}
+
+async function startTranscript(local) {
+  const customTitle = $("task-title")?.value?.trim();
+  const captureTags = typeof getTags === "function" ? getTags() : ["bilibili-transcript"];
+  $("saving-label").textContent = "Extracting transcript...";
+  showView("saving");
+  if (!local) $("footer").classList.remove("hidden");
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("No active tab");
+
+    if (!isBilibiliVideo(tab.url)) {
+      throw new Error("Not a Bilibili video page");
+    }
+
+    await chrome.storage.local.remove(["capture_status", "capture_title", "capture_error"]);
+    await chrome.runtime.sendMessage({
+      action: "bilibiliTranscript",
+      tabId: tab.id,
+      customTitle: customTitle || undefined,
+      tags: captureTags,
+      local: !!local,
+    }).catch(() => {});
+  } catch (err) {
+    $("error-message").textContent = err.message || "Transcript extraction failed";
     showView("error");
   }
 }

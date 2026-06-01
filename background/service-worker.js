@@ -13,6 +13,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     runLocalCapture(message.tabId);
     sendResponse({ started: true });
   }
+  if (message.action === "bilibiliTranscript") {
+    runBilibiliTranscript(message.tabId, message.customTitle, message.tags, message.local);
+    sendResponse({ started: true });
+  }
   if (message.action === "cancelCapture") {
     if (currentCapture) {
       currentCapture.cancelled = true;
@@ -331,7 +335,7 @@ async function uploadAndCreateTask(title, pageUrl, htmlContent, filename, markdo
       fileSize: blob.size,
       resourceType: "document",
       uploadMethod: "chrome-extension",
-      path: "/",
+      path: "/web-clipper",
     }),
   });
   const prepareData = await prepareRes.json();
@@ -366,6 +370,181 @@ async function uploadAndCreateTask(title, pageUrl, htmlContent, filename, markdo
       status: "todo",
       tags: tags && tags.length > 0 ? tags : undefined,
       resourceIds: [resourceId],
+    }),
+  });
+  const taskData = await taskRes.json();
+
+  return { success: true, taskId: taskData.id, title: taskData.title };
+}
+
+// --- Bilibili transcript extraction ---
+
+async function runBilibiliTranscript(tabId, customTitle, tags, local) {
+  currentCapture = { cancelled: false };
+  try {
+    await setStatus("saving");
+    const result = await handleBilibiliTranscript(tabId, customTitle, tags, local);
+    if (currentCapture?.cancelled) return;
+    if (result.success) {
+      await setStatus("success", { capture_title: result.title });
+    } else {
+      await setStatus("error", { capture_error: result.error });
+    }
+  } catch (err) {
+    if (currentCapture?.cancelled) return;
+    await setStatus("error", { capture_error: err.message });
+  } finally {
+    currentCapture = null;
+  }
+}
+
+async function handleBilibiliTranscript(tabId, customTitle, tags, local) {
+  // Step 1: Extract video info from page
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["content/bilibili.js"],
+  });
+
+  const response = await chrome.tabs.sendMessage(tabId, { action: "extractBilibiliInfo" })
+    .catch(() => null);
+
+  if (!response?.success) {
+    throw new Error(response?.error || "Failed to extract video info from this page");
+  }
+
+  let { bvid, cid, title, author, duration } = response;
+  if (!bvid) throw new Error("Cannot find video ID on this page");
+
+  // Step 2: If cid is missing, fetch from API
+  if (!cid) {
+    const viewRes = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`);
+    const viewData = await viewRes.json();
+    if (viewData.code !== 0) throw new Error("Failed to get video info from Bilibili");
+    cid = viewData.data.cid;
+    if (!title) title = viewData.data.title;
+    if (!author) author = viewData.data.owner?.name;
+    if (!duration) duration = viewData.data.duration;
+  }
+
+  // Step 3: Get subtitle list (may need SESSDATA cookie for some videos)
+  const sessdata = await getBilibiliCookie("SESSDATA");
+  const playerUrl = `https://api.bilibili.com/x/player/v2?bvid=${bvid}&cid=${cid}`;
+  const fetchOptions = {};
+  if (sessdata) {
+    fetchOptions.headers = { Cookie: `SESSDATA=${sessdata}` };
+  }
+
+  const playerRes = await fetch(playerUrl, fetchOptions);
+  const playerData = await playerRes.json();
+
+  if (playerData.code !== 0) {
+    throw new Error(`Bilibili API error: ${playerData.message || "Unknown error"}`);
+  }
+
+  const subtitles = playerData.data?.subtitle?.subtitles;
+  if (!subtitles || subtitles.length === 0) {
+    throw new Error("No subtitles available for this video. Only videos with CC or AI-generated subtitles are supported.");
+  }
+
+  // Step 4: Pick the best subtitle (prefer Chinese, then any available)
+  const preferredLangs = ["zh-CN", "zh-Hans", "ai-zh", "zh", "zh-TW"];
+  let selectedSub = subtitles.find((s) => preferredLangs.includes(s.lan));
+  if (!selectedSub) selectedSub = subtitles[0];
+
+  // Step 5: Download subtitle JSON
+  let subtitleUrl = selectedSub.subtitle_url;
+  if (subtitleUrl.startsWith("//")) subtitleUrl = "https:" + subtitleUrl;
+
+  const subRes = await fetch(subtitleUrl);
+  const subData = await subRes.json();
+
+  if (!subData.body || subData.body.length === 0) {
+    throw new Error("Subtitle file is empty");
+  }
+
+  // Step 6: Format as markdown
+  const videoTitle = customTitle || title || "Untitled Video";
+  const subtitleType = selectedSub.ai_type ? "AI generated" : "CC subtitle";
+  const lang = selectedSub.lan_doc || selectedSub.lan || "unknown";
+  const markdown = formatTranscriptMarkdown(videoTitle, author, duration, bvid, subtitleType, lang, subData.body);
+
+  // Step 7: Save (local download or upload to server)
+  if (local) {
+    return await saveTranscriptLocal(videoTitle, markdown);
+  } else {
+    return await saveTranscriptToServer(videoTitle, markdown, tags);
+  }
+}
+
+async function getBilibiliCookie(name) {
+  try {
+    const cookie = await chrome.cookies.get({
+      url: "https://www.bilibili.com",
+      name: name,
+    });
+    return cookie?.value || null;
+  } catch {
+    return null;
+  }
+}
+
+function formatTranscriptMarkdown(title, author, duration, bvid, subtitleType, lang, body) {
+  const durationStr = duration ? formatDuration(duration) : "unknown";
+
+  let md = `# ${title}\n\n`;
+  md += `- **Author**: ${author || "unknown"}\n`;
+  md += `- **Duration**: ${durationStr}\n`;
+  md += `- **Source**: https://www.bilibili.com/video/${bvid}\n`;
+  md += `- **Subtitle**: ${subtitleType} (${lang})\n\n`;
+  md += `---\n\n`;
+
+  for (const item of body) {
+    const ts = formatTimestamp(item.from);
+    md += `**[${ts}]** ${item.content}\n\n`;
+  }
+
+  return md;
+}
+
+function formatDuration(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function formatTimestamp(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+async function saveTranscriptLocal(title, markdown) {
+  const safeTitle = title.replace(/[^a-zA-Z0-9\u4e00-\u9fff\s_-]/g, "_").substring(0, 100);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").substring(0, 19);
+  const filename = `${safeTitle}_${timestamp}.md`;
+
+  const mdDataUrl = toDataUrl(markdown, "text/markdown");
+  await chrome.downloads.download({
+    url: mdDataUrl,
+    filename: filename,
+    saveAs: false,
+  });
+
+  return { success: true, title };
+}
+
+async function saveTranscriptToServer(title, markdown, tags) {
+  const taskTags = tags && tags.length > 0 ? tags : ["bilibili-transcript"];
+
+  const taskRes = await apiFetch("/todolist", {
+    method: "POST",
+    body: JSON.stringify({
+      title: title || "Untitled Video",
+      description: markdown,
+      status: "todo",
+      tags: taskTags,
     }),
   });
   const taskData = await taskRes.json();

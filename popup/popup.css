@@ -347,3 +347,20 @@ input:focus {
   color: #dc2626;
   border-color: #dc2626;
 }
+
+.transcript-badge {
+  font-size: 11px;
+  color: #00a1d6;
+  padding: 3px 8px;
+  background: #e3f6fd;
+  border-radius: 3px;
+  text-align: center;
+}
+
+.btn-transcript {
+  background: #00a1d6;
+}
+
+.btn-transcript:hover {
+  background: #0091c2;
+}
