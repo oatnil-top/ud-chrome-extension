@@ -17,50 +17,51 @@
 
     <!-- Setup View -->
     <div id="view-setup" class="view">
-      <div class="field">
-        <label for="api-url">API URL</label>
-        <input type="url" id="api-url" placeholder="https://ud.oatnil.top/api">
-      </div>
-
-      <!-- Auth method tabs -->
-      <div class="auth-tabs">
-        <button id="tab-login" class="auth-tab active">Login</button>
-        <button id="tab-apikey" class="auth-tab">API Key</button>
-      </div>
-
-      <!-- Login fields -->
-      <div id="auth-login">
-        <div class="field">
-          <label for="username">Username</label>
-          <input type="text" id="username" placeholder="username">
-        </div>
-        <div class="field">
-          <label for="password">Password</label>
-          <input type="password" id="password" placeholder="password">
-        </div>
-        <button id="btn-login" class="btn-primary">Login</button>
-      </div>
-
-      <!-- API Key fields -->
-      <div id="auth-apikey" class="hidden">
-        <div class="field">
-          <label for="api-key">API Key</label>
-          <input type="password" id="api-key" placeholder="ak_...">
-        </div>
-        <div class="btn-row">
-          <button id="btn-test" class="btn-secondary">Test</button>
-          <button id="btn-save-key" class="btn-primary">Save</button>
-        </div>
-      </div>
-
-      <div id="setup-status" class="hidden"></div>
-
-      <div class="divider">
-        <span>or</span>
-      </div>
-
+      <button id="btn-copy-md-setup" class="btn-primary btn-full">Copy Markdown</button>
       <button id="btn-local-save" class="btn-secondary btn-full">Save to Local</button>
       <button id="btn-local-transcript-setup" class="btn-secondary btn-full hidden">Download Transcript</button>
+
+      <!-- Collapsible login section -->
+      <button id="btn-toggle-login" class="btn-link btn-full toggle-login">Login to server <span id="toggle-arrow">&#9662;</span></button>
+      <div id="login-section" class="hidden">
+        <div class="field">
+          <label for="api-url">API URL</label>
+          <input type="url" id="api-url" placeholder="https://ud.oatnil.top/api">
+        </div>
+
+        <!-- Auth method tabs -->
+        <div class="auth-tabs">
+          <button id="tab-login" class="auth-tab active">Login</button>
+          <button id="tab-apikey" class="auth-tab">API Key</button>
+        </div>
+
+        <!-- Login fields -->
+        <div id="auth-login">
+          <div class="field">
+            <label for="username">Username</label>
+            <input type="text" id="username" placeholder="username">
+          </div>
+          <div class="field">
+            <label for="password">Password</label>
+            <input type="password" id="password" placeholder="password">
+          </div>
+          <button id="btn-login" class="btn-primary">Login</button>
+        </div>
+
+        <!-- API Key fields -->
+        <div id="auth-apikey" class="hidden">
+          <div class="field">
+            <label for="api-key">API Key</label>
+            <input type="password" id="api-key" placeholder="ak_...">
+          </div>
+          <div class="btn-row">
+            <button id="btn-test" class="btn-secondary">Test</button>
+            <button id="btn-save-key" class="btn-primary">Save</button>
+          </div>
+        </div>
+
+        <div id="setup-status" class="hidden"></div>
+      </div>
     </div>
 
     <!-- Ready View (main view when authenticated) -->

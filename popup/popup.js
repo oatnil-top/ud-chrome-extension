@@ -22,6 +22,14 @@ function showView(name) {
   }
 }
 
+// Toggle login section
+$("btn-toggle-login").addEventListener("click", () => {
+  const section = $("login-section");
+  const arrow = $("toggle-arrow");
+  const isHidden = section.classList.toggle("hidden");
+  arrow.innerHTML = isHidden ? "&#9662;" : "&#9652;";
+});
+
 // Auth method tabs
 $("tab-login").addEventListener("click", () => switchAuthTab("login"));
 $("tab-apikey").addEventListener("click", () => switchAuthTab("apikey"));
@@ -349,8 +357,9 @@ $("btn-capture").addEventListener("click", () => startCapture());
 // Transcript: Save Transcript button (upload to server)
 $("btn-transcript").addEventListener("click", () => startTranscript(false));
 
-// Copy Markdown button
+// Copy Markdown buttons
 $("btn-copy-md").addEventListener("click", () => startCopyMarkdown());
+$("btn-copy-md-setup").addEventListener("click", () => startCopyMarkdown());
 
 // Local Save buttons (no login required)
 $("btn-local-save").addEventListener("click", () => startLocalSave());
