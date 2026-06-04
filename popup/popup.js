@@ -107,12 +107,14 @@ chrome.storage.onChanged.addListener(async (changes) => {
         }
         await chrome.storage.local.remove(["capture_markdown"]);
       }
+      $("success-label").textContent = "Copied!";
       $("saved-title").textContent = "Markdown copied to clipboard";
       showView("success");
       if (isAuthenticated) $("footer").classList.remove("hidden");
       setTimeout(() => window.close(), 1500);
     } else if (status === "success") {
       const title = changes.capture_title?.newValue || "";
+      $("success-label").textContent = "Saved!";
       $("saved-title").textContent = title;
       showView("success");
       if (isAuthenticated) $("footer").classList.remove("hidden");
