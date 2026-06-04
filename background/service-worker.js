@@ -9,6 +9,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     runCapture(message.tabId, message.customTitle, message.tags);
     sendResponse({ started: true });
   }
+  if (message.action === "copyMarkdown") {
+    runCopyMarkdown(message.tabId);
+    sendResponse({ started: true });
+  }
   if (message.action === "localCapture") {
     runLocalCapture(message.tabId);
     sendResponse({ started: true });
@@ -54,6 +58,26 @@ async function runCapture(tabId, customTitle, tags) {
     } else {
       await setStatus("error", { capture_error: result.error });
     }
+  } catch (err) {
+    if (currentCapture?.cancelled) return;
+    await setStatus("error", { capture_error: err.message });
+  } finally {
+    currentCapture = null;
+  }
+}
+
+async function runCopyMarkdown(tabId) {
+  currentCapture = { cancelled: false };
+  try {
+    await setStatus("saving");
+    const markdown = await extractMarkdown(tabId);
+    if (currentCapture?.cancelled) return;
+    if (!markdown) {
+      await setStatus("error", { capture_error: "Could not extract readable content from this page" });
+      return;
+    }
+    await chrome.storage.local.set({ capture_markdown: markdown });
+    await setStatus("copied");
   } catch (err) {
     if (currentCapture?.cancelled) return;
     await setStatus("error", { capture_error: err.message });

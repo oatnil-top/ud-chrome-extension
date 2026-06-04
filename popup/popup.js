@@ -82,6 +82,27 @@ chrome.storage.onChanged.addListener(async (changes) => {
     if (status === "saving") {
       showView("saving");
       if (isAuthenticated) $("footer").classList.remove("hidden");
+    } else if (status === "copied") {
+      // Markdown was extracted — copy to clipboard
+      const md = await chrome.storage.local.get(["capture_markdown"]);
+      if (md.capture_markdown) {
+        try {
+          await navigator.clipboard.writeText(md.capture_markdown);
+        } catch {
+          // Fallback: textarea copy
+          const ta = document.createElement("textarea");
+          ta.value = md.capture_markdown;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+        }
+        await chrome.storage.local.remove(["capture_markdown"]);
+      }
+      $("saved-title").textContent = "Markdown copied to clipboard";
+      showView("success");
+      if (isAuthenticated) $("footer").classList.remove("hidden");
+      setTimeout(() => window.close(), 1500);
     } else if (status === "success") {
       const title = changes.capture_title?.newValue || "";
       $("saved-title").textContent = title;
@@ -328,6 +349,9 @@ $("btn-capture").addEventListener("click", () => startCapture());
 // Transcript: Save Transcript button (upload to server)
 $("btn-transcript").addEventListener("click", () => startTranscript(false));
 
+// Copy Markdown button
+$("btn-copy-md").addEventListener("click", () => startCopyMarkdown());
+
 // Local Save buttons (no login required)
 $("btn-local-save").addEventListener("click", () => startLocalSave());
 $("btn-local-save-ready").addEventListener("click", () => startLocalSave());
@@ -383,6 +407,29 @@ async function startLocalSave() {
     }).catch(() => {});
   } catch (err) {
     $("error-message").textContent = err.message || "Save failed";
+    showView("error");
+  }
+}
+
+async function startCopyMarkdown() {
+  $("saving-label").textContent = "Extracting markdown...";
+  showView("saving");
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab?.id) throw new Error("No active tab");
+
+    if (tab.url?.startsWith("chrome://") || tab.url?.startsWith("chrome-extension://")) {
+      throw new Error("Cannot extract from browser internal pages");
+    }
+
+    await chrome.storage.local.remove(["capture_status", "capture_title", "capture_error"]);
+    await chrome.runtime.sendMessage({
+      action: "copyMarkdown",
+      tabId: tab.id,
+    }).catch(() => {});
+  } catch (err) {
+    $("error-message").textContent = err.message || "Extraction failed";
     showView("error");
   }
 }
