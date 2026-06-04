@@ -175,9 +175,11 @@ async function extractMarkdown(tabId) {
   });
 
   // Request markdown extraction (synchronous response from content script)
-  const [response] = await chrome.tabs.sendMessage(tabId, { action: "extractMarkdown" })
-    .then(r => [r])
-    .catch(() => [null]);
+  // Add timeout to prevent hanging if the content script doesn't respond
+  const [response] = await Promise.race([
+    chrome.tabs.sendMessage(tabId, { action: "extractMarkdown" }).then(r => [r]).catch(() => [null]),
+    new Promise(resolve => setTimeout(() => resolve([null]), 10000)),
+  ]);
 
   if (response?.success) {
     return response.markdown;
