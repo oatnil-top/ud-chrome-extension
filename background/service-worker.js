@@ -164,15 +164,20 @@ async function apiFetch(path, options = {}, _retried = false) {
 
 async function extractMarkdown(tabId) {
   // Inject Readability + Turndown + markdown extraction script
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: [
-      "lib/Readability.js",
-      "lib/turndown.js",
-      "lib/turndown-plugin-gfm.js",
-      "content/markdown.js",
-    ],
-  });
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: [
+        "lib/Readability.js",
+        "lib/turndown.js",
+        "lib/turndown-plugin-gfm.js",
+        "content/markdown.js",
+      ],
+    });
+  } catch (err) {
+    console.warn("Script injection failed:", err.message);
+    return null;
+  }
 
   // Request markdown extraction (synchronous response from content script)
   // Add timeout to prevent hanging if the content script doesn't respond

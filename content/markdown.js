@@ -27,6 +27,12 @@
 
     // Clone the document so Readability doesn't mutate the live DOM
     const docClone = document.cloneNode(true);
+
+    // Strip GPU-composited elements that don't contribute readable text
+    // and may trigger GPU resource operations during cloning/parsing
+    const gpuSelectors = "video, canvas, object, embed, iframe[src*='youtube'], iframe[src*='vimeo']";
+    docClone.querySelectorAll(gpuSelectors).forEach((el) => el.remove());
+
     const reader = new Readability(docClone);
     const article = reader.parse();
 
